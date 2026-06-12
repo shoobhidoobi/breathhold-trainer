@@ -36,9 +36,18 @@ def read_table(page):
         out.append((to_secs(tds[1]), to_secs(tds[2])))
     return out
 
+SPEECH_STUB = """
+window.__utterances = [];
+if (window.speechSynthesis) {
+  window.speechSynthesis.speak = (u) => { if (u.text.trim()) window.__utterances.push(u.text); };
+  window.speechSynthesis.cancel = () => { window.__cancelled = true; };
+}
+"""
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page()
+    page.add_init_script(SPEECH_STUB)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
@@ -126,18 +135,58 @@ with sync_playwright() as p:
     page.wait_for_timeout(1500)
     check(page.locator("#setup").is_visible(), "back mid-run: setup not shown")
 
-    # --- Full session completion (tiny PB to keep it short? min is 30s; instead fast-forward via JS not possible since stateless; simulate by checking finish path with short phases through console override) ---
+    # --- Full session completion + voice script (fast-forwarded via __timeScale) ---
     page.goto(URL)
-    page.evaluate("""() => { window.__origTimeout = window.setTimeout; window.setTimeout = (fn, ms) => window.__origTimeout(fn, Math.min(ms, 5)); }""")
-    page.fill("#pb-min", "0"); page.fill("#pb-sec", "40")
+    page.evaluate("window.__timeScale = 200")
+    page.fill("#pb-min", "2"); page.fill("#pb-sec", "0")
     page.click("#btn-generate")
     page.click("#btn-start")
-    page.wait_for_selector("#complete:not(.hidden)", timeout=15000)
+    page.wait_for_selector("#complete:not(.hidden)", timeout=30000)
     check(page.locator("#complete").is_visible(), "completion screen not shown")
     check("Restart" in page.inner_text("#btn-start"), "restart button not shown after completion")
+    utt = page.evaluate("window.__utterances")
+    check(any("table" in u for u in utt[:1]), f"voice: no session overview first: {utt[:3]}")
+    check(sum(1 for u in utt if u == "Hold.") == 8, f"voice: expected 8 'Hold.' cues, got {sum(1 for u in utt if u == 'Hold.')}")
+    check(any("final breath" in u for u in utt), "voice: no final-breath warning")
+    check(any("Recovery breaths" in u for u in utt), "voice: no recovery cue")
+    check("Session complete" in utt[-1], f"voice: last utterance not completion: {utt[-1]!r}")
+    check(any("Round 3 of 8" in u for u in utt), "voice full: round announcements missing")
     # restart works
     page.click("#btn-start")
-    page.wait_for_selector("#complete:not(.hidden)", timeout=15000)
+    page.wait_for_selector("#complete:not(.hidden)", timeout=30000)
+
+    # --- Minimal voice mode: phase cues only ---
+    page.goto(URL)
+    page.evaluate("window.__timeScale = 200")
+    page.fill("#pb-min", "2"); page.fill("#pb-sec", "0")
+    page.click("#btn-voice-minimal")
+    page.click("#btn-generate")
+    page.click("#btn-start")
+    page.wait_for_selector("#complete:not(.hidden)", timeout=30000)
+    utt = page.evaluate("window.__utterances")
+    check(sum(1 for u in utt if u == "Hold.") == 8, "voice minimal: missing Hold cues")
+    check(not any("Round 3" in u for u in utt), f"voice minimal: should not announce rounds: {[u for u in utt if 'Round 3' in u]}")
+    check(any("final breath" in u for u in utt), "voice minimal: final-breath warning missing")
+
+    # --- Voice off: no utterances ---
+    page.goto(URL)
+    page.evaluate("window.__timeScale = 200")
+    page.fill("#pb-min", "2"); page.fill("#pb-sec", "0")
+    page.click("#btn-voice-off")
+    page.click("#btn-generate")
+    page.click("#btn-start")
+    page.wait_for_selector("#complete:not(.hidden)", timeout=30000)
+    utt = page.evaluate("window.__utterances")
+    check(not utt, f"voice off: utterances spoken: {utt[:3]}")
+
+    # --- Back mid-session cancels speech ---
+    page.goto(URL)
+    page.fill("#pb-min", "2"); page.fill("#pb-sec", "0")
+    page.click("#btn-generate")
+    page.click("#btn-start")
+    page.wait_for_timeout(1000)
+    page.click("#btn-back")
+    check(page.evaluate("window.__cancelled === true"), "back: speech not cancelled")
 
     # --- Mobile viewport sanity ---
     mpage = browser.new_page(viewport={"width": 375, "height": 667})

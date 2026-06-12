@@ -117,6 +117,12 @@
       <button id="btn-co2" class="selected">CO₂ table<span class="desc">fixed holds, shrinking rests &mdash; builds CO₂ tolerance</span></button>
       <button id="btn-o2">O₂ table<span class="desc">fixed rests, growing holds &mdash; builds O₂ efficiency</span></button>
     </div>
+    <label>Voice guidance</label>
+    <div class="table-choice">
+      <button id="btn-voice-full" class="selected">Full<span class="desc">guides every phase &mdash; close your eyes and follow along</span></button>
+      <button id="btn-voice-minimal">Minimal<span class="desc">only phase changes and final-breath warning</span></button>
+      <button id="btn-voice-off">Off<span class="desc">beeps only</span></button>
+    </div>
     <button class="btn-primary" id="btn-generate">Generate session</button>
   </div>
 
@@ -149,9 +155,11 @@
   const $ = (id) => document.getElementById(id);
 
   let tableType = "co2";
+  let voiceMode = "full"; // full | minimal | off
   let session = [];   // [{breathe, hold}]
   let running = false;
   let timerId = null;
+  let wakeLock = null;
 
   function fmt(s) {
     const m = Math.floor(s / 60), r = s % 60;
@@ -207,6 +215,7 @@
   function beep(freq, dur) {
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
       const o = audioCtx.createOscillator(), g = audioCtx.createGain();
       o.frequency.value = freq;
       o.connect(g); g.connect(audioCtx.destination);
@@ -216,55 +225,150 @@
     } catch (e) { /* audio unavailable */ }
   }
 
-  function runTimer() {
-    // Build phase list: breathe -> hold per round.
+  // --- speech ---
+  let voice = null;
+  function pickVoice() {
+    if (!window.speechSynthesis) return;
+    const voices = speechSynthesis.getVoices();
+    voice = voices.find((v) => v.lang.startsWith("en") && v.localService) ||
+            voices.find((v) => v.lang.startsWith("en")) || null;
+  }
+  if (window.speechSynthesis) {
+    pickVoice();
+    speechSynthesis.addEventListener("voiceschanged", pickVoice);
+  }
+
+  function speak(text) {
+    if (voiceMode === "off" || !window.speechSynthesis) return;
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      if (voice) u.voice = voice;
+      u.rate = 0.95;
+      speechSynthesis.speak(u);
+    } catch (e) { /* speech unavailable */ }
+  }
+
+  function stopSpeech() {
+    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+  }
+
+  function unlockAudio() {
+    beep(440, 0.001);
+    try {
+      if (window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0;
+        speechSynthesis.speak(u);
+      }
+    } catch (e) {}
+  }
+
+  // --- wake lock ---
+  async function acquireWakeLock() {
+    try {
+      if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen");
+    } catch (e) { /* unsupported or denied */ }
+  }
+  function releaseWakeLock() {
+    try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (running && document.visibilityState === "visible") acquireWakeLock();
+  });
+
+  function sayTime(s) {
+    const m = Math.floor(s / 60), r = s % 60;
+    if (m && r) return m + (m === 1 ? " minute " : " minutes ") + r + " seconds";
+    if (m) return m + (m === 1 ? " minute" : " minutes");
+    return r + " seconds";
+  }
+
+  // Build an absolute schedule of phases and timed cues so the session stays
+  // accurate over its full length and audio lands where intended.
+  function buildSchedule() {
     const phases = [];
+    let at = 0;
     session.forEach((r, i) => {
-      phases.push({ name: "breathe", secs: r.breathe, round: i });
-      phases.push({ name: "hold", secs: r.hold, round: i });
+      phases.push({ name: "breathe", round: i, start: at, end: at + r.breathe, secs: r.breathe });
+      at += r.breathe;
+      phases.push({ name: "hold", round: i, start: at, end: at + r.hold, secs: r.hold });
+      at += r.hold;
     });
 
+    const full = voiceMode === "full";
+    const cues = [];
+    phases.forEach((p, idx) => {
+      const d = p.secs, s = p.start;
+      if (p.name === "breathe") {
+        cues.push({ at: s, fn: () => {
+          beep(440, 0.3);
+          let text = p.round === 0
+            ? (tableType === "co2" ? "C O two" : "O two") + " table. " + ROUNDS + " rounds. "
+            : "Breathe. Recovery breaths. ";
+          if (p.round === 0) text += "Breathe. ";
+          if (full) text += "Round " + (p.round + 1) + " of " + ROUNDS + ". " + sayTime(d) + " to breathe.";
+          else if (p.round === 0) text += "Round 1.";
+          speak(text);
+        }});
+        if (full && d >= 45) cues.push({ at: p.end - 30, fn: () => speak("Thirty seconds. Slow your breathing.") });
+        if (d >= 20) cues.push({ at: p.end - 10, fn: () => speak("Ten seconds. Take your final breath.") });
+        for (let t = 3; t >= 1; t--) {
+          const n = t;
+          cues.push({ at: p.end - n, fn: () => { beep(660, 0.1); if (full) speak(String(n)); } });
+        }
+      } else {
+        cues.push({ at: s, fn: () => { beep(880, 0.3); speak("Hold."); } });
+        if (full && d >= 60) cues.push({ at: s + Math.floor(d / 2), fn: () => beep(550, 0.15) });
+        if (full && d >= 30) cues.push({ at: p.end - 10, fn: () => speak("Ten seconds.") });
+        for (let t = 3; t >= 1; t--) cues.push({ at: p.end - t, fn: () => beep(660, 0.1) });
+      }
+    });
+    cues.sort((a, b) => a.at - b.at);
+    return { phases, cues, total: at };
+  }
+
+  function runTimer() {
+    const { phases, cues, total } = buildSchedule();
+    const startEpoch = Date.now();
+    const timeScale = window.__timeScale || 1;
+    let cueIdx = 0;
     let pi = 0;
-    let remaining = phases[0].secs;
     running = true;
     $("btn-start").classList.add("hidden");
     $("complete").classList.add("hidden");
     $("timer").classList.remove("hidden");
+    acquireWakeLock();
 
     function tick() {
+      const elapsed = (Date.now() - startEpoch) / 1000 * timeScale;
+      while (cueIdx < cues.length && cues[cueIdx].at <= elapsed) {
+        cues[cueIdx].fn();
+        cueIdx++;
+      }
+      if (elapsed >= total) { finish(); return; }
+      while (pi < phases.length - 1 && elapsed >= phases[pi].end) pi++;
       const phase = phases[pi];
+      const remaining = Math.max(0, Math.ceil(phase.end - elapsed));
       $("phase-label").textContent = phase.name === "hold" ? "Hold" : "Breathe";
       $("phase-label").className = "phase-label " + phase.name;
       $("time-left").textContent = fmt(remaining);
       $("round-info").textContent = "Round " + (phase.round + 1) + " of " + ROUNDS;
-      $("progress-fill").style.width = (100 * pi / phases.length) + "%";
+      $("progress-fill").style.width = (100 * elapsed / total) + "%";
       renderTable(phase.round, phase.name);
-
-      if (remaining <= 3 && remaining > 0) beep(660, 0.1);
-      if (remaining <= 0) {
-        pi++;
-        if (pi >= phases.length) {
-          finish();
-          return;
-        }
-        beep(phases[pi].name === "hold" ? 880 : 440, 0.3);
-        remaining = phases[pi].secs;
-      } else {
-        remaining--;
-      }
-      timerId = setTimeout(tick, 1000);
+      timerId = setTimeout(tick, 200);
     }
-    beep(440, 0.3);
     tick();
   }
 
   function finish() {
     running = false;
+    releaseWakeLock();
     $("timer").classList.add("hidden");
     $("complete").classList.remove("hidden");
     $("progress-fill").style.width = "100%";
     renderTable(ROUNDS);
     beep(880, 0.5);
+    speak("Session complete. Well done. Keep breathing gently and recover.");
     $("btn-start").classList.remove("hidden");
     $("btn-start").textContent = "Restart";
   }
@@ -272,6 +376,8 @@
   function stopTimer() {
     if (timerId) clearTimeout(timerId);
     running = false;
+    stopSpeech();
+    releaseWakeLock();
   }
 
   // --- wiring ---
@@ -284,6 +390,14 @@
     tableType = "o2";
     $("btn-o2").classList.add("selected");
     $("btn-co2").classList.remove("selected");
+  });
+
+  ["full", "minimal", "off"].forEach((mode) => {
+    $("btn-voice-" + mode).addEventListener("click", () => {
+      voiceMode = mode;
+      ["full", "minimal", "off"].forEach((m) =>
+        $("btn-voice-" + m).classList.toggle("selected", m === mode));
+    });
   });
 
   $("btn-generate").addEventListener("click", () => {
@@ -301,6 +415,8 @@
 
   $("btn-start").addEventListener("click", () => {
     if (running) return;
+    unlockAudio();
+    stopSpeech();
     $("timer").classList.remove("hidden");
     runTimer();
   });
