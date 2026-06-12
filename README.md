@@ -6,8 +6,8 @@ A simple, stateless web app for breathhold training using CO₂ and O₂ tables.
 
 1. Enter your personal best breathhold time.
 2. Pick a table type:
-   - **CO₂ table** — fixed holds (~50% of PB), rests shrink each round. Builds CO₂ tolerance.
-   - **O₂ table** — fixed rests, holds grow from ~40% to ~80% of PB. Builds O₂ efficiency.
+   - **CO₂ table** — fixed holds (~50–60% of PB), rests shrink from ~2 min down to ~15–30 s in equal steps. Builds CO₂ tolerance.
+   - **O₂ table** — fixed ~2 min rests, holds grow in equal steps from ~50% to ~80% of PB. Builds O₂ efficiency.
 3. Each session is slightly randomised, so no two sessions are identical.
 4. Follow the guided timer with audio cues through 8 rounds.
 

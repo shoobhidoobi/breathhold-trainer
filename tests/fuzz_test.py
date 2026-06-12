@@ -74,12 +74,14 @@ with sync_playwright() as p:
         if table == "co2":
             check(len(set(holds)) == 1, f"pb={pb} co2: holds not constant: {holds}")
             check(all(breathes[i] >= breathes[i+1] for i in range(7)), f"pb={pb} co2: rests not non-increasing: {breathes}")
-            check(0.30*pb <= holds[0] <= 0.70*pb or pb < 60, f"pb={pb} co2: hold {holds[0]} out of sane range")
+            check(0.45*pb <= holds[0] <= 0.65*pb or pb < 60, f"pb={pb} co2: hold {holds[0]} out of sane range")
+            check(100 <= breathes[0] <= 140, f"pb={pb} co2: first rest {breathes[0]} not ~2min")
+            check(10 <= breathes[-1] <= 35, f"pb={pb} co2: last rest {breathes[-1]} not ~15-30s")
         else:
             check(len(set(breathes)) == 1, f"pb={pb} o2: rests not constant: {breathes}")
             check(all(holds[i] <= holds[i+1] for i in range(7)), f"pb={pb} o2: holds not non-decreasing: {holds}")
-            check(holds[-1] <= 0.95*pb, f"pb={pb} o2: final hold {holds[-1]} too close to PB")
-            check(breathes[0] >= 60, f"pb={pb} o2: rest {breathes[0]} below 60s")
+            check(holds[-1] <= 0.85*pb, f"pb={pb} o2: final hold {holds[-1]} above 80% of PB")
+            check(100 <= breathes[0] <= 140, f"pb={pb} o2: rest {breathes[0]} not ~2min")
 
     # --- Edge: zero/empty inputs ---
     for mins, secs in [("0","0"), ("", ""), ("0","29")]:
