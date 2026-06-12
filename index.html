@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breathhold Trainer</title>
+<style>
+  :root {
+    --bg: #0b1726;
+    --card: #12243a;
+    --accent: #4dd0e1;
+    --hold: #ef5350;
+    --breathe: #66bb6a;
+    --text: #e3f2fd;
+    --muted: #7d99b5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  .container { width: 100%; max-width: 480px; }
+  h1 { font-size: 1.5rem; text-align: center; margin-bottom: 4px; }
+  .subtitle { text-align: center; color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+  .pb-inputs { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+  input[type="number"] {
+    width: 80px;
+    padding: 10px;
+    font-size: 1.1rem;
+    border: 1px solid #2a4565;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    text-align: center;
+  }
+  .pb-inputs span { color: var(--muted); }
+  .table-choice { display: flex; gap: 8px; margin-bottom: 16px; }
+  .table-choice button {
+    flex: 1;
+    padding: 12px;
+    border: 2px solid #2a4565;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .table-choice button.selected { border-color: var(--accent); background: #16334d; }
+  .table-choice .desc { font-size: 0.75rem; color: var(--muted); display: block; margin-top: 4px; }
+  .btn-primary {
+    width: 100%;
+    padding: 14px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #042330;
+    cursor: pointer;
+  }
+  .btn-secondary {
+    width: 100%;
+    padding: 12px;
+    font-size: 1rem;
+    border: 1px solid #2a4565;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  th, td { padding: 8px; text-align: center; font-size: 0.95rem; }
+  th { color: var(--muted); font-weight: 500; border-bottom: 1px solid #2a4565; }
+  tr.done td { color: var(--muted); text-decoration: line-through; }
+  tr.current td { color: var(--accent); font-weight: 700; }
+  .timer-display { text-align: center; padding: 24px 0; }
+  .phase-label { font-size: 1.2rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+  .phase-label.hold { color: var(--hold); }
+  .phase-label.breathe { color: var(--breathe); }
+  .time-left { font-size: 4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .round-info { color: var(--muted); margin-top: 8px; }
+  .progress-bar { height: 6px; background: #2a4565; border-radius: 3px; overflow: hidden; margin-top: 16px; }
+  .progress-fill { height: 100%; background: var(--accent); transition: width 0.5s linear; }
+  .hidden { display: none; }
+  .complete { text-align: center; padding: 24px 0; }
+  .complete h2 { color: var(--breathe); margin-bottom: 8px; }
+  .footer-note { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 16px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Breathhold Trainer</h1>
+  <p class="subtitle">CO₂ &amp; O₂ tables &mdash; randomised every session</p>
+
+  <!-- Setup -->
+  <div id="setup" class="card">
+    <label>Your personal best breathhold</label>
+    <div class="pb-inputs">
+      <input type="number" id="pb-min" min="0" max="20" value="2"> <span>min</span>
+      <input type="number" id="pb-sec" min="0" max="59" value="0"> <span>sec</span>
+    </div>
+    <label>Table type</label>
+    <div class="table-choice">
+      <button id="btn-co2" class="selected">CO₂ table<span class="desc">fixed holds, shrinking rests &mdash; builds CO₂ tolerance</span></button>
+      <button id="btn-o2">O₂ table<span class="desc">fixed rests, growing holds &mdash; builds O₂ efficiency</span></button>
+    </div>
+    <button class="btn-primary" id="btn-generate">Generate session</button>
+  </div>
+
+  <!-- Session -->
+  <div id="session" class="card hidden">
+    <div id="timer" class="timer-display">
+      <div id="phase-label" class="phase-label breathe">Get ready</div>
+      <div id="time-left" class="time-left">--</div>
+      <div id="round-info" class="round-info"></div>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width:0%"></div></div>
+    </div>
+    <div id="complete" class="complete hidden">
+      <h2>Session complete!</h2>
+      <p class="round-info">Nice work. Rest well before your next session.</p>
+    </div>
+    <table>
+      <thead><tr><th>Round</th><th>Breathe</th><th>Hold</th></tr></thead>
+      <tbody id="table-body"></tbody>
+    </table>
+    <button class="btn-primary" id="btn-start">Start</button>
+    <button class="btn-secondary" id="btn-back">Back / new session</button>
+  </div>
+
+  <p class="footer-note">⚠️ Never train breathholds in water alone.<br>Stop immediately if you feel dizzy or unwell.</p>
+</div>
+
+<script>
+(function () {
+  const ROUNDS = 8;
+  const $ = (id) => document.getElementById(id);
+
+  let tableType = "co2";
+  let session = [];   // [{breathe, hold}]
+  let running = false;
+  let timerId = null;
+
+  function fmt(s) {
+    const m = Math.floor(s / 60), r = s % 60;
+    return m + ":" + String(r).padStart(2, "0");
+  }
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+  function roundTo5(s) { return Math.max(5, Math.round(s / 5) * 5); }
+
+  function generateSession(pb) {
+    const rounds = [];
+    if (tableType === "co2") {
+      // Fixed hold ~45-55% of PB; rest starts near PB and shrinks each round.
+      const hold = roundTo5(pb * rand(0.45, 0.55));
+      const restStart = roundTo5(pb * rand(0.9, 1.1));
+      const restEnd = roundTo5(Math.max(15, pb * rand(0.25, 0.35)));
+      for (let i = 0; i < ROUNDS; i++) {
+        const t = i / (ROUNDS - 1);
+        const rest = roundTo5(restStart + (restEnd - restStart) * t);
+        rounds.push({ breathe: rest, hold });
+      }
+    } else {
+      // Fixed rest ~ PB (min 60s); hold grows from ~40% to ~80% of PB.
+      const rest = roundTo5(Math.max(60, pb * rand(0.9, 1.1)));
+      const holdStart = roundTo5(pb * rand(0.35, 0.45));
+      const holdEnd = roundTo5(pb * rand(0.75, 0.85));
+      for (let i = 0; i < ROUNDS; i++) {
+        const t = i / (ROUNDS - 1);
+        const hold = roundTo5(holdStart + (holdEnd - holdStart) * t);
+        rounds.push({ breathe: rest, hold });
+      }
+    }
+    return rounds;
+  }
+
+  function renderTable(currentRound, currentPhase) {
+    const tbody = $("table-body");
+    tbody.innerHTML = "";
+    session.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      if (currentRound !== undefined) {
+        if (i < currentRound) tr.className = "done";
+        else if (i === currentRound) tr.className = "current";
+      }
+      tr.innerHTML = "<td>" + (i + 1) + "</td><td>" + fmt(r.breathe) + "</td><td>" + fmt(r.hold) + "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  // --- audio cue ---
+  let audioCtx = null;
+  function beep(freq, dur) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = freq;
+      o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+      o.start(); o.stop(audioCtx.currentTime + dur);
+    } catch (e) { /* audio unavailable */ }
+  }
+
+  function runTimer() {
+    // Build phase list: breathe -> hold per round.
+    const phases = [];
+    session.forEach((r, i) => {
+      phases.push({ name: "breathe", secs: r.breathe, round: i });
+      phases.push({ name: "hold", secs: r.hold, round: i });
+    });
+
+    let pi = 0;
+    let remaining = phases[0].secs;
+    running = true;
+    $("btn-start").classList.add("hidden");
+    $("complete").classList.add("hidden");
+    $("timer").classList.remove("hidden");
+
+    function tick() {
+      const phase = phases[pi];
+      $("phase-label").textContent = phase.name === "hold" ? "Hold" : "Breathe";
+      $("phase-label").className = "phase-label " + phase.name;
+      $("time-left").textContent = fmt(remaining);
+      $("round-info").textContent = "Round " + (phase.round + 1) + " of " + ROUNDS;
+      $("progress-fill").style.width = (100 * pi / phases.length) + "%";
+      renderTable(phase.round, phase.name);
+
+      if (remaining <= 3 && remaining > 0) beep(660, 0.1);
+      if (remaining <= 0) {
+        pi++;
+        if (pi >= phases.length) {
+          finish();
+          return;
+        }
+        beep(phases[pi].name === "hold" ? 880 : 440, 0.3);
+        remaining = phases[pi].secs;
+      } else {
+        remaining--;
+      }
+      timerId = setTimeout(tick, 1000);
+    }
+    beep(440, 0.3);
+    tick();
+  }
+
+  function finish() {
+    running = false;
+    $("timer").classList.add("hidden");
+    $("complete").classList.remove("hidden");
+    $("progress-fill").style.width = "100%";
+    renderTable(ROUNDS);
+    beep(880, 0.5);
+    $("btn-start").classList.remove("hidden");
+    $("btn-start").textContent = "Restart";
+  }
+
+  function stopTimer() {
+    if (timerId) clearTimeout(timerId);
+    running = false;
+  }
+
+  // --- wiring ---
+  $("btn-co2").addEventListener("click", () => {
+    tableType = "co2";
+    $("btn-co2").classList.add("selected");
+    $("btn-o2").classList.remove("selected");
+  });
+  $("btn-o2").addEventListener("click", () => {
+    tableType = "o2";
+    $("btn-o2").classList.add("selected");
+    $("btn-co2").classList.remove("selected");
+  });
+
+  $("btn-generate").addEventListener("click", () => {
+    const pb = (parseInt($("pb-min").value, 10) || 0) * 60 + (parseInt($("pb-sec").value, 10) || 0);
+    if (pb < 30) { alert("Please enter a personal best of at least 30 seconds."); return; }
+    session = generateSession(pb);
+    renderTable();
+    $("setup").classList.add("hidden");
+    $("session").classList.remove("hidden");
+    $("timer").classList.add("hidden");
+    $("complete").classList.add("hidden");
+    $("btn-start").classList.remove("hidden");
+    $("btn-start").textContent = "Start";
+  });
+
+  $("btn-start").addEventListener("click", () => {
+    if (running) return;
+    $("timer").classList.remove("hidden");
+    runTimer();
+  });
+
+  $("btn-back").addEventListener("click", () => {
+    stopTimer();
+    $("session").classList.add("hidden");
+    $("setup").classList.remove("hidden");
+  });
+})();
+</script>
+</body>
+</html>
