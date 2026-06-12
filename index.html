@@ -98,6 +98,7 @@
   .complete { text-align: center; padding: 24px 0; }
   .complete h2 { color: var(--breathe); margin-bottom: 8px; }
   .footer-note { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 16px; line-height: 1.5; }
+  #debug-panel { background: #060d16; border: 1px solid #2a4565; border-radius: 8px; padding: 10px; margin-top: 16px; font-family: monospace; font-size: 0.7rem; color: #9fc1e3; max-height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -123,6 +124,7 @@
       <button id="btn-voice-minimal">Minimal<span class="desc">only phase changes and final-breath warning</span></button>
       <button id="btn-voice-off">Off<span class="desc">beeps only</span></button>
     </div>
+    <button class="btn-secondary" id="btn-test-voice">Test voice</button>
     <button class="btn-primary" id="btn-generate">Generate session</button>
   </div>
 
@@ -146,6 +148,8 @@
     <button class="btn-primary" id="btn-start">Start</button>
     <button class="btn-secondary" id="btn-back">Back / new session</button>
   </div>
+
+  <div id="debug-panel" class="hidden"></div>
 
   <p class="footer-note">⚠️ Never train breathholds in water alone.<br>Stop immediately if you feel dizzy or unwell.</p>
 </div>
@@ -226,6 +230,20 @@
     } catch (e) { /* audio unavailable */ }
   }
 
+  // --- debug ---
+  const DEBUG = new URLSearchParams(location.search).has("debug");
+  function dlog(msg) {
+    if (!DEBUG) return;
+    const panel = $("debug-panel");
+    panel.classList.remove("hidden");
+    const ss = window.speechSynthesis;
+    const state = ss ? " [spk:" + ss.speaking + " pnd:" + ss.pending + " pau:" + ss.paused + "]" : "";
+    panel.textContent += new Date().toISOString().slice(11, 23) + " " + msg + state + "\n";
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  if (DEBUG) dlog("debug on. UA: " + navigator.userAgent);
+
   // --- speech ---
   let voice = null;
   // Keep utterances referenced until they finish: Chrome garbage-collects
@@ -239,7 +257,11 @@
   }
   if (window.speechSynthesis) {
     pickVoice();
-    speechSynthesis.addEventListener("voiceschanged", pickVoice);
+    dlog("voices at load: " + speechSynthesis.getVoices().length + ", picked: " + (voice ? voice.name : "none"));
+    speechSynthesis.addEventListener("voiceschanged", () => {
+      pickVoice();
+      dlog("voiceschanged: " + speechSynthesis.getVoices().length + " voices, picked: " + (voice ? voice.name + "/" + voice.lang + (voice.localService ? " (local)" : " (network)") : "none"));
+    });
   }
 
   function speak(text) {
@@ -261,10 +283,14 @@
           $("voice-warning").classList.remove("hidden");
         }
       });
+      u.addEventListener("start", () => dlog("start: \"" + text.slice(0, 40) + "\""));
+      u.addEventListener("end", () => dlog("end: \"" + text.slice(0, 40) + "\""));
+      u.addEventListener("error", (e) => dlog("ERROR " + e.error + ": \"" + text.slice(0, 40) + "\""));
       // Chrome can get stuck in a paused state; resume before speaking.
       speechSynthesis.resume();
       speechSynthesis.speak(u);
-    } catch (e) { /* speech unavailable */ }
+      dlog("queued: \"" + text.slice(0, 40) + "\" voice=" + (u.voice ? u.voice.name : "default"));
+    } catch (e) { dlog("speak threw: " + e); }
   }
 
   function stopSpeech() {
@@ -426,6 +452,14 @@
     $("complete").classList.add("hidden");
     $("btn-start").classList.remove("hidden");
     $("btn-start").textContent = "Start";
+  });
+
+  $("btn-test-voice").addEventListener("click", () => {
+    dlog("test voice clicked. speechSynthesis: " + !!window.speechSynthesis + ", voices: " + (window.speechSynthesis ? speechSynthesis.getVoices().length : 0) + ", mode: " + voiceMode);
+    const prev = voiceMode;
+    if (voiceMode === "off") voiceMode = "full";
+    speak("Voice check. Prompts during your session will sound like this.");
+    voiceMode = prev;
   });
 
   $("btn-start").addEventListener("click", () => {
