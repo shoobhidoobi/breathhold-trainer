@@ -133,6 +133,7 @@
       <div id="time-left" class="time-left">--</div>
       <div id="round-info" class="round-info"></div>
       <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width:0%"></div></div>
+      <div id="voice-warning" class="round-info hidden">Voice unavailable in this browser &mdash; using beeps only.</div>
     </div>
     <div id="complete" class="complete hidden">
       <h2>Session complete!</h2>
@@ -227,6 +228,9 @@
 
   // --- speech ---
   let voice = null;
+  // Keep utterances referenced until they finish: Chrome garbage-collects
+  // in-flight utterances otherwise, silently dropping speech.
+  const liveUtterances = [];
   function pickVoice() {
     if (!window.speechSynthesis) return;
     const voices = speechSynthesis.getVoices();
@@ -241,26 +245,37 @@
   function speak(text) {
     if (voiceMode === "off" || !window.speechSynthesis) return;
     try {
+      if (!voice) pickVoice();
       const u = new SpeechSynthesisUtterance(text);
       if (voice) u.voice = voice;
       u.rate = 0.95;
+      liveUtterances.push(u);
+      const release = () => {
+        const i = liveUtterances.indexOf(u);
+        if (i >= 0) liveUtterances.splice(i, 1);
+      };
+      u.addEventListener("end", release);
+      u.addEventListener("error", (e) => {
+        release();
+        if (e.error !== "canceled" && e.error !== "interrupted") {
+          $("voice-warning").classList.remove("hidden");
+        }
+      });
+      // Chrome can get stuck in a paused state; resume before speaking.
+      speechSynthesis.resume();
       speechSynthesis.speak(u);
     } catch (e) { /* speech unavailable */ }
   }
 
   function stopSpeech() {
-    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+    try {
+      liveUtterances.length = 0;
+      if (window.speechSynthesis) speechSynthesis.cancel();
+    } catch (e) {}
   }
 
   function unlockAudio() {
     beep(440, 0.001);
-    try {
-      if (window.speechSynthesis) {
-        const u = new SpeechSynthesisUtterance(" ");
-        u.volume = 0;
-        speechSynthesis.speak(u);
-      }
-    } catch (e) {}
   }
 
   // --- wake lock ---
@@ -415,9 +430,12 @@
 
   $("btn-start").addEventListener("click", () => {
     if (running) return;
-    unlockAudio();
     stopSpeech();
+    unlockAudio();
+    $("voice-warning").classList.add("hidden");
     $("timer").classList.remove("hidden");
+    // runTimer fires the first cue synchronously, so the opening speech
+    // happens inside this user gesture and unlocks TTS on mobile.
     runTimer();
   });
 
