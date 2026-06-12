@@ -19,6 +19,15 @@ No accounts, no storage, no backend — just open `index.html` in a browser.
 open index.html        # or just double-click it
 ```
 
+## Tests
+
+Fuzz-style e2e tests (Playwright) covering table generation, edge-case inputs, timer flow, and mobile layout:
+
+```sh
+pip install playwright && playwright install chromium
+python tests/fuzz_test.py
+```
+
 ## Safety
 
 Never train breathholds in water alone. Stop immediately if you feel dizzy or unwell.
