@@ -164,23 +164,24 @@
   function generateSession(pb) {
     const rounds = [];
     if (tableType === "co2") {
-      // Fixed hold ~45-55% of PB; rest starts near PB and shrinks each round.
-      const hold = roundTo5(pb * rand(0.45, 0.55));
-      const restStart = roundTo5(pb * rand(0.9, 1.1));
-      const restEnd = roundTo5(Math.max(15, pb * rand(0.25, 0.35)));
+      // Fixed hold ~50-60% of PB; rest starts ~2 min and shrinks by a fixed
+      // step each round down to ~15-30s, independent of PB.
+      const hold = roundTo5(pb * rand(0.5, 0.6));
+      const restStart = roundTo5(rand(105, 135));
+      const restEnd = roundTo5(rand(15, 30));
+      const step = Math.max(5, Math.ceil((restStart - restEnd) / (ROUNDS - 1) / 5) * 5);
       for (let i = 0; i < ROUNDS; i++) {
-        const t = i / (ROUNDS - 1);
-        const rest = roundTo5(restStart + (restEnd - restStart) * t);
+        const rest = Math.max(restEnd, restStart - step * i);
         rounds.push({ breathe: rest, hold });
       }
     } else {
-      // Fixed rest ~ PB (min 60s); hold grows from ~40% to ~80% of PB.
-      const rest = roundTo5(Math.max(60, pb * rand(0.9, 1.1)));
-      const holdStart = roundTo5(pb * rand(0.35, 0.45));
-      const holdEnd = roundTo5(pb * rand(0.75, 0.85));
+      // Fixed rest ~2 min; hold grows in equal steps from ~50% to ~80% of PB.
+      const rest = roundTo5(rand(105, 135));
+      const holdStart = roundTo5(pb * rand(0.45, 0.55));
+      const holdEnd = roundTo5(pb * rand(0.75, 0.8));
+      const step = roundTo5((holdEnd - holdStart) / (ROUNDS - 1));
       for (let i = 0; i < ROUNDS; i++) {
-        const t = i / (ROUNDS - 1);
-        const hold = roundTo5(holdStart + (holdEnd - holdStart) * t);
+        const hold = Math.min(holdEnd, holdStart + step * i);
         rounds.push({ breathe: rest, hold });
       }
     }
