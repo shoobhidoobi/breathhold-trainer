@@ -249,9 +249,29 @@
   // Keep utterances referenced until they finish: Chrome garbage-collects
   // in-flight utterances otherwise, silently dropping speech.
   const liveUtterances = [];
+
+  // Voices that tend to sound warm and natural across platforms.
+  const PREFERRED_VOICE_NAMES = [
+    "Samantha",        // macOS/iOS – clear and natural
+    "Karen",           // macOS Australian
+    "Daniel",          // macOS British
+    "Moira",           // macOS Irish
+    "Google UK English Female",
+    "Google US English",
+    "Microsoft Aria Online (Natural)",
+    "Microsoft Jenny Online (Natural)",
+    "Microsoft Zira",
+  ];
+
   function pickVoice() {
     if (!window.speechSynthesis) return;
     const voices = speechSynthesis.getVoices();
+    // Try preferred voices in order first.
+    for (const name of PREFERRED_VOICE_NAMES) {
+      const match = voices.find((v) => v.name === name);
+      if (match) { voice = match; return; }
+    }
+    // Fall back: local English voice, then any English voice.
     voice = voices.find((v) => v.lang.startsWith("en") && v.localService) ||
             voices.find((v) => v.lang.startsWith("en")) || null;
   }
@@ -270,7 +290,8 @@
       if (!voice) pickVoice();
       const u = new SpeechSynthesisUtterance(text);
       if (voice) u.voice = voice;
-      u.rate = 0.95;
+      u.rate = 0.88;
+      u.pitch = 0.95;
       liveUtterances.push(u);
       const release = () => {
         const i = liveUtterances.indexOf(u);
@@ -343,24 +364,27 @@
       if (p.name === "breathe") {
         cues.push({ at: s, fn: () => {
           beep(440, 0.3);
-          let text = p.round === 0
-            ? (tableType === "co2" ? "C O two" : "O two") + " table. " + ROUNDS + " rounds. "
-            : "Breathe. Recovery breaths. ";
-          if (p.round === 0) text += "Breathe. ";
-          if (full) text += "Round " + (p.round + 1) + " of " + ROUNDS + ". " + sayTime(d) + " to breathe.";
-          else if (p.round === 0) text += "Round 1.";
+          let text;
+          if (p.round === 0) {
+            const tableLabel = tableType === "co2" ? "CO two" : "O two";
+            text = "Let's begin your " + tableLabel + " table. " + ROUNDS + " rounds total. Take a deep breath and settle in.";
+            if (full) text += " You have " + sayTime(d) + " to breathe.";
+          } else {
+            text = "Nice work. Take your recovery breaths now.";
+            if (full) text += " Round " + (p.round + 1) + " of " + ROUNDS + ". " + sayTime(d) + " to breathe.";
+          }
           speak(text);
         }});
-        if (full && d >= 45) cues.push({ at: p.end - 30, fn: () => speak("Thirty seconds. Slow your breathing.") });
-        if (d >= 20) cues.push({ at: p.end - 10, fn: () => speak("Ten seconds. Take your final breath.") });
+        if (full && d >= 45) cues.push({ at: p.end - 30, fn: () => speak("Thirty seconds left. Start slowing your breath.") });
+        if (d >= 20) cues.push({ at: p.end - 10, fn: () => speak("Ten seconds. Take your final deep breath now.") });
         for (let t = 3; t >= 1; t--) {
           const n = t;
           cues.push({ at: p.end - n, fn: () => { beep(660, 0.1); if (full) speak(String(n)); } });
         }
       } else {
-        cues.push({ at: s, fn: () => { beep(880, 0.3); speak("Hold."); } });
+        cues.push({ at: s, fn: () => { beep(880, 0.3); speak("Hold your breath now."); } });
         if (full && d >= 60) cues.push({ at: s + Math.floor(d / 2), fn: () => beep(550, 0.15) });
-        if (full && d >= 30) cues.push({ at: p.end - 10, fn: () => speak("Ten seconds.") });
+        if (full && d >= 30) cues.push({ at: p.end - 10, fn: () => speak("Ten seconds remaining. Keep holding.") });
         for (let t = 3; t >= 1; t--) cues.push({ at: p.end - t, fn: () => beep(660, 0.1) });
       }
     });
@@ -409,7 +433,7 @@
     $("progress-fill").style.width = "100%";
     renderTable(ROUNDS);
     beep(880, 0.5);
-    speak("Session complete. Well done. Keep breathing gently and recover.");
+    speak("Session complete. Excellent work. Take slow easy breaths and let your body recover.");
     $("btn-start").classList.remove("hidden");
     $("btn-start").textContent = "Restart";
   }
@@ -458,7 +482,7 @@
     dlog("test voice clicked. speechSynthesis: " + !!window.speechSynthesis + ", voices: " + (window.speechSynthesis ? speechSynthesis.getVoices().length : 0) + ", mode: " + voiceMode);
     const prev = voiceMode;
     if (voiceMode === "off") voiceMode = "full";
-    speak("Voice check. Prompts during your session will sound like this.");
+    speak("Voice check. During your session, I'll guide you through each breath and hold just like this.");
     voiceMode = prev;
   });
 
