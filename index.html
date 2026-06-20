@@ -165,6 +165,7 @@
   let running = false;
   let timerId = null;
   let wakeLock = null;
+  let currentPhaseInfo = null; // { name, round, remaining } — kept current by tick()
 
   function fmt(s) {
     const m = Math.floor(s / 60), r = s % 60;
@@ -335,7 +336,19 @@
     try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
   }
   document.addEventListener("visibilitychange", () => {
-    if (running && document.visibilityState === "visible") acquireWakeLock();
+    if (!running) return;
+    if (document.visibilityState === "visible") {
+      acquireWakeLock();
+      // Clear any utterances that queued up while the tab was hidden —
+      // without this they all play back-to-back the moment focus returns.
+      stopSpeech();
+      // Re-orient the user so they know where they are in the session.
+      if (currentPhaseInfo && voiceMode !== "off") {
+        const { name, round, remaining } = currentPhaseInfo;
+        const phaseWord = name === "hold" ? "holding" : "breathing";
+        speak("Welcome back. Round " + (round + 1) + ", " + phaseWord + ". " + sayTime(remaining) + " remaining.");
+      }
+    }
   });
 
   function sayTime(s) {
@@ -406,14 +419,18 @@
 
     function tick() {
       const elapsed = (Date.now() - startEpoch) / 1000 * timeScale;
+      const pageVisible = document.visibilityState === "visible";
       while (cueIdx < cues.length && cues[cueIdx].at <= elapsed) {
-        cues[cueIdx].fn();
+        // Skip audio/speech cues that fired while the tab was hidden — the
+        // visibilitychange handler will re-orient the user when they return.
+        if (pageVisible) cues[cueIdx].fn();
         cueIdx++;
       }
       if (elapsed >= total) { finish(); return; }
       while (pi < phases.length - 1 && elapsed >= phases[pi].end) pi++;
       const phase = phases[pi];
       const remaining = Math.max(0, Math.ceil(phase.end - elapsed));
+      currentPhaseInfo = { name: phase.name, round: phase.round, remaining };
       $("phase-label").textContent = phase.name === "hold" ? "Hold" : "Breathe";
       $("phase-label").className = "phase-label " + phase.name;
       $("time-left").textContent = fmt(remaining);
@@ -427,6 +444,7 @@
 
   function finish() {
     running = false;
+    currentPhaseInfo = null;
     releaseWakeLock();
     $("timer").classList.add("hidden");
     $("complete").classList.remove("hidden");
@@ -441,6 +459,7 @@
   function stopTimer() {
     if (timerId) clearTimeout(timerId);
     running = false;
+    currentPhaseInfo = null;
     stopSpeech();
     releaseWakeLock();
   }
